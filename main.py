@@ -8,50 +8,64 @@ import threading
 # --- CONFIG ---
 BOT_TOKEN = "8404423366:AAELzmHapklGgYTa_nHCRzVzYaEjWDSBeQA"
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
-ADMIN_ID = "7457254381"  # ton ID Telegram pour recevoir les alertes perso
+ADMIN_ID = "7457254381"  # ton chat ID
 
 app = Flask(__name__)
 
-# --- UTILITAIRES ---
+# --- OUTILS ---
 def send_message(chat_id, text):
+    """Envoi d’un message Telegram"""
     url = BASE_URL + "sendMessage"
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
     requests.post(url, json=payload)
 
-def get_crypto_trending():
-    """Exemple de fonction de détection de tendances crypto (via API publique)."""
+# --- MODULE RUMEURS & VEILLE ---
+def get_trending_coins():
+    """Top cryptos en tendance sur CoinGecko"""
     try:
         data = requests.get("https://api.coingecko.com/api/v3/search/trending").json()
         coins = data.get("coins", [])
-        top = []
+        msg = "🚀 <b>Top cryptos en tendance :</b>\n\n"
         for c in coins[:5]:
             coin = c["item"]
-            top.append(f"🚀 <b>{coin['name']}</b> ({coin['symbol']})\n🔗 https://www.coingecko.com/en/coins/{coin['id']}")
-        return "\n\n".join(top)
+            msg += f"• <b>{coin['name']}</b> ({coin['symbol']})\n🔗 https://www.coingecko.com/en/coins/{coin['id']}\n\n"
+        return msg
     except Exception as e:
-        return f"Erreur API : {e}"
+        return f"⚠️ Erreur CoinGecko : {e}"
 
-def detect_smart_money():
-    """Simulation d’analyse onchain (simplifiée pour l’exemple)."""
-    # En version avancée : tu peux brancher une vraie API (comme Nansen, Arkham, etc.)
-    wallets = ["0x1234...", "0xABCD...", "0x9999..."]
-    coin = "ZKSync (ZK)"
-    reason = "Accumulation par plusieurs portefeuilles smart money cette semaine 🔥"
-    return f"💼 <b>Smart Money Alert</b>\nCrypto : {coin}\nRaison : {reason}\nPortefeuilles : {', '.join(wallets)}"
-
-def crypto_news_summary():
-    """Résumé d'actualités crypto (simplifié pour démo)."""
+def get_hot_news():
+    """Rumeurs / annonces montantes via CryptoPanic"""
     try:
-        res = requests.get("https://cryptopanic.com/api/v1/posts/?auth_token=demo&filter=rising")
-        data = res.json().get("results", [])
+        url = "https://cryptopanic.com/api/v1/posts/?auth_token=demo&filter=rising"
+        data = requests.get(url).json().get("results", [])
         news = []
         for n in data[:3]:
             news.append(f"📰 <b>{n['title']}</b>\n🔗 {n['url']}")
-        return "\n\n".join(news)
+        return "🔥 <b>Rumeurs & Actualités brûlantes :</b>\n\n" + "\n\n".join(news)
     except:
-        return "Impossible de charger les actualités."
+        return "⚠️ Impossible de charger les rumeurs CryptoPanic."
 
-# --- LOGIQUE DU BOT ---
+def get_upcoming_events():
+    """Événements à venir sur CoinMarketCal"""
+    try:
+        url = "https://developers.coinmarketcal.com/v1/events"
+        headers = {"x-api-key": "DEMO_KEY"}  # tu pourras mettre ta clé plus tard
+        data = requests.get(url, headers=headers).json()
+        events = data.get("body", [])
+        msg = "📅 <b>Événements à venir :</b>\n\n"
+        for e in events[:3]:
+            msg += f"• {e['title']} ({e['coin']['symbol']})\n🗓️ {e['date_event']}\n🔗 {e['source']}\n\n"
+        return msg
+    except:
+        return "⚠️ Erreur CoinMarketCal."
+
+def smart_money_alert():
+    """Exemple d'alerte Smart Money"""
+    coin = "ZKSync (ZK)"
+    reason = "Accumulation détectée sur plusieurs portefeuilles smart money 🧠"
+    return f"💼 <b>Smart Money Alert</b>\nCrypto : {coin}\nRaison : {reason}"
+
+# --- BOT COMMANDES ---
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
 def webhook():
     update = request.get_json()
@@ -62,31 +76,33 @@ def webhook():
     text = update["message"].get("text", "").lower()
 
     if text in ["/start", "start"]:
-        send_message(chat_id, "👋 Bienvenue ! Je t’enverrai bientôt des signaux crypto 🔥")
+        send_message(chat_id, "👋 Bienvenue ! Je t’enverrai des <b>signaux et rumeurs crypto</b> en temps réel 🔥")
     elif "rumeur" in text or "signal" in text:
-        send_message(chat_id, f"📈 Voici les cryptos en tendance :\n\n{get_crypto_trending()}")
+        send_message(chat_id, get_hot_news())
     elif "smart" in text:
-        send_message(chat_id, detect_smart_money())
-    elif "news" in text or "actu" in text:
-        send_message(chat_id, crypto_news_summary())
+        send_message(chat_id, smart_money_alert())
+    elif "event" in text or "cal" in text:
+        send_message(chat_id, get_upcoming_events())
+    elif "tendance" in text or "trend" in text:
+        send_message(chat_id, get_trending_coins())
     else:
-        send_message(chat_id, "🤖 Commandes disponibles :\n- rumeurs / signal\n- smart\n- news / actu")
+        send_message(chat_id, "🤖 Commandes disponibles :\n- rumeur / signal\n- tendance / trend\n- smart\n- event / cal")
 
     return "ok", 200
 
 @app.route("/", methods=["GET"])
 def home():
-    return "Bot crypto en ligne 🚀", 200
+    return "Bot crypto actif 🚀", 200
 
 # --- AUTOMATISATION ---
-def job_auto_send():
-    """Tâche planifiée qui envoie automatiquement des infos au créateur."""
-    trending = get_crypto_trending()
-    smart = detect_smart_money()
-    send_message(ADMIN_ID, f"🔔 <b>Veille quotidienne</b>\n\n{trending}\n\n{smart}")
+def auto_veille():
+    """Routine automatique d’envoi de rumeurs + tendances"""
+    rumors = get_hot_news()
+    trends = get_trending_coins()
+    send_message(ADMIN_ID, f"📡 <b>Veille Auto</b>\n\n{rumors}\n\n{trends}")
 
 def run_schedule():
-    schedule.every(6).hours.do(job_auto_send)
+    schedule.every(3).hours.do(auto_veille)
     while True:
         schedule.run_pending()
         time.sleep(60)
