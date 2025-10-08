@@ -1,72 +1,58 @@
-from flask import Flask, request
-import requests
 import os
-import schedule
-import time
-import threading
+import requests
+from flask import Flask, request
 
-# === Configuration de base ===
+# Initialisation de l’application Flask
 app = Flask(__name__)
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-URL = "https://botaplussupral.onrender.com"
-TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
+# Ton token Telegram doit être dans les variables d’environnement Render
+TOKEN = os.getenv("BOT_TOKEN")
 
-# === Fonction d'envoi de message Telegram ===
-def send_message(chat_id, text):
-    url = f"{TELEGRAM_API_URL}/sendMessage"
-    payload = {"chat_id": chat_id, "text": text}
-    try:
-        requests.post(url, json=payload)
-    except Exception as e:
-        print("Erreur d'envoi :", e)
+if not TOKEN:
+    raise ValueError("⚠️ BOT_TOKEN non défini dans les variables d'environnement Render")
 
-# === Configuration automatique du webhook ===
+# ✅ Fonction pour configurer automatiquement le webhook
 def set_webhook():
-    webhook_url = f"{URL}/webhook"
-    response = requests.get(f"{TELEGRAM_API_URL}/setWebhook?url={webhook_url}")
-    print("Webhook setup:", response.text)
+    url = f"https://botaplussupral.onrender.com/{TOKEN}"  # Remplace l’URL si besoin
+    webhook_url = f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={url}"
+    response = requests.get(webhook_url)
+    print("Configuration du webhook :", response.text)
 
-# === Route principale (pour tester Render) ===
+# ✅ Route principale — juste pour test
 @app.route('/')
 def home():
-    return "🤖 Bot A+ est en ligne sur Render !"
+    return "Bot A+ en ligne ✅"
 
-# === Route du webhook (pour recevoir les messages Telegram) ===
-@app.route('/webhook', methods=['POST'])
+# ✅ Route qui reçoit les mises à jour Telegram
+@app.route(f"/{TOKEN}", methods=['POST'])
 def webhook():
-    data = request.get_json()
-    if data and "message" in data:
-        chat_id = data["message"]["chat"]["id"]
-        text = data["message"].get("text", "").strip()
+    update = request.get_json()
+    print(update)  # Pour voir les messages reçus dans les logs Render
 
-        if text.lower() in ["/start", "start"]:
-            send_message(chat_id, "✅ Bot A+ connecté avec succès ! Enchanté 😎")
-        else:
-            send_message(chat_id, f"Message reçu : {text}")
-    return "ok"
+    if not update or "message" not in update:
+        return "no update", 200
 
-# === Exemple de tâche planifiée ===
-def job():
-    print("⏰ Tâche planifiée exécutée...")
-    # Tu peux y mettre une tâche automatique ici
+    message = update["message"]
+    chat_id = message["chat"]["id"]
+    text = message.get("text", "").lower()
 
-# === Thread pour le planificateur ===
-def run_schedule():
-    schedule.every(10).minutes.do(job)
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
+    # Réponse simple au /start
+    if text == "/start":
+        send_message(chat_id, "👋 Bonjour ! Je suis ton bot A+ prêt à fonctionner 🚀")
+    elif "bonjour" in text:
+        send_message(chat_id, "Salut 👋 ! Comment vas-tu ?")
+    else:
+        send_message(chat_id, "Je suis bien en ligne ✅")
 
-if __name__ == "__main__":
-    # Démarre le planificateur en parallèle
-    threading.Thread(target=run_schedule, daemon=True).start()
+    return "ok", 200
 
+# ✅ Fonction d’envoi de message
+def send_message(chat_id, text):
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    requests.get(url, params={"chat_id": chat_id, "text": text})
+
+# ✅ Lancement de l’application Flask
+if __name__ == '__main__':
     print("🔍 Démarrage du bot A+...")
-    print("✅ Planificateur activé (toutes les 10 minutes)")
-
-    # Configure le webhook à chaque démarrage
     set_webhook()
-
-    # Lance le serveur Flask
-    app.run(host="0.0.0.0", port=10000)
+    app.run(host='0.0.0.0', port=10000)
