@@ -8,7 +8,7 @@ import logging
 # ==============================
 TOKEN = "8404423366:AAELzmHapklGgYTa_nHCRzVzYaEjWDSBeQA"
 WEBHOOK_URL = f"https://botaplussupral-2.onrender.com/{TOKEN}"
-ADMIN_CHAT_ID = "XXXX"  # <-- Mets ici ton ID Telegram (pour les notifications d’état)
+ADMIN_CHAT_ID = "7457254381"  # <-- Mets ici ton ID Telegram (pour les notifications d’état)
 
 # ==============================
 # INITIALISATION
