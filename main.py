@@ -1,119 +1,92 @@
 import os
 import requests
-import schedule
-import time
 from flask import Flask, request
+import logging
 
-# === CONFIGURATION ===
-TOKEN = os.getenv("TELEGRAM_TOKEN", "TON_TOKEN_TELEGRAM_ICI")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "TON_CHAT_ID_ICI")
-X_BEARER = os.getenv("X_BEARER_TOKEN", "TON_BEARER_TOKEN_X_ICI")
+# ==============================
+# CONFIGURATION DU BOT
+# ==============================
+TOKEN = "8404423366:AAELzmHapklGgYTa_nHCRzVzYaEjWDSBeQA"
+WEBHOOK_URL = f"https://botaplussupral-2.onrender.com/{TOKEN}"
+ADMIN_CHAT_ID = "XXXX"  # <-- Mets ici ton ID Telegram (pour les notifications d’état)
 
+# ==============================
+# INITIALISATION
+# ==============================
 app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
 
-# === ENVOI MESSAGE TELEGRAM ===
+
+# ==============================
+# ROUTE PRINCIPALE
+# ==============================
+@app.route("/", methods=["GET"])
+def home():
+    return "🤖 Bot A+ opérationnel ✅", 200
+
+
+# ==============================
+# ROUTE DU WEBHOOK
+# ==============================
+@app.route(f"/{TOKEN}", methods=["POST"])
+def webhook():
+    try:
+        update = request.get_json()
+        logging.info(f"📩 Nouvelle mise à jour reçue : {update}")
+
+        if "message" in update:
+            chat_id = update["message"]["chat"]["id"]
+            text = update["message"].get("text", "")
+
+            if text.lower() == "/start" or text.lower() == "start":
+                send_message(chat_id, "👋 Salut ! Je suis Bot A+. Je t’enverrai des signaux crypto 🔥")
+            elif "rumeur" in text.lower():
+                send_message(chat_id, "🔍 Recherche des dernières rumeurs crypto... (bientôt disponible)")
+            elif "news" in text.lower():
+                send_message(chat_id, "📰 Analyse des dernières actualités du marché... (bientôt disponible)")
+            elif "smart" in text.lower():
+                send_message(chat_id, "💼 Détection des mouvements de Smart Money... (bientôt disponible)")
+            else:
+                send_message(chat_id, "✅ Message reçu ! Tape 'rumeur', 'news' ou 'smart' pour tester mes fonctions.")
+        return "ok", 200
+
+    except Exception as e:
+        logging.error(f"Erreur dans le webhook : {e}")
+        return "error", 500
+
+
+# ==============================
+# ENVOI DE MESSAGE
+# ==============================
 def send_message(chat_id, text):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     payload = {"chat_id": chat_id, "text": text}
-    try:
-        requests.post(url, json=payload)
-    except Exception as e:
-        print(f"Erreur d’envoi Telegram : {e}")
+    requests.post(url, json=payload)
 
-# === MODULE NEWS ===
-def get_crypto_news():
-    try:
-        url = "https://cryptopanic.com/api/v1/posts/?kind=news&filter=rising"
-        response = requests.get(url)
-        data = response.json().get("results", [])
-        news = [f"📰 {n['title']}" for n in data[:3]]
-        return "\n\n".join(news) if news else "Aucune actualité trouvée pour le moment."
-    except Exception as e:
-        return f"Erreur lors de la récupération des actualités : {e}"
 
-# === MODULE RUMEURS ===
-def get_crypto_rumors():
-    try:
-        headers = {"Authorization": f"Bearer {X_BEARER}"}
-        query = "crypto OR bitcoin OR altcoin OR partnership OR listing lang:fr"
-        url = f"https://api.x.com/2/tweets/search/recent?query={query}&max_results=5"
-        resp = requests.get(url, headers=headers)
-        tweets = resp.json().get("data", [])
-        rumors = [f"💬 {t['text']}" for t in tweets]
-        return "\n\n".join(rumors) if rumors else "Aucune rumeur détectée récemment."
-    except Exception as e:
-        return f"Erreur lors de l’analyse des rumeurs : {e}"
+# ==============================
+# CONFIGURATION AUTOMATIQUE DU WEBHOOK
+# ==============================
+def setup_webhook():
+    logging.info("🔗 Configuration du Webhook...")
+    delete_url = f"https://api.telegram.org/bot{TOKEN}/deleteWebhook"
+    set_url = f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={WEBHOOK_URL}"
 
-# === MODULE SMART MONEY ===
-def get_smart_money_data():
-    try:
-        url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=volume_desc"
-        response = requests.get(url)
-        coins = response.json()
-        picks = coins[:3]
-        msg = "\n".join([f"💰 {c['name']} ({c['symbol'].upper()}) - ${c['current_price']}" for c in picks])
-        return f"Voici les tokens les plus accumulés par les whales 👇\n\n{msg}"
-    except Exception as e:
-        return f"Erreur lors de la récupération des données smart money : {e}"
+    # Supprimer l’ancien Webhook
+    requests.get(delete_url)
+    # Ajouter le nouveau
+    response = requests.get(set_url)
+    logging.info(f"Résultat du webhook : {response.text}")
 
-# === MODULE SIGNAL AUTOMATIQUE ===
-def get_crypto_signal():
-    try:
-        url = "https://api.coingecko.com/api/v3/search/trending"
-        data = requests.get(url).json()
-        coin = data['coins'][0]['item']
-        return f"🚀 Signal du moment : {coin['name']} ({coin['symbol'].upper()})\nRang : {coin['market_cap_rank']}\nTendance forte détectée 🔥"
-    except Exception as e:
-        return f"Erreur lors de la génération du signal : {e}"
+    # Notification à l’admin (si défini)
+    if ADMIN_CHAT_ID != "XXXX":
+        send_message(ADMIN_CHAT_ID, "🚀 Bot A+ redémarré et webhook configuré avec succès !")
 
-# === RECEPTION WEBHOOK ===
-@app.route(f"/{TOKEN}", methods=["POST"])
-def webhook():
-    update = request.get_json()
-    if "message" in update:
-        chat_id = update["message"]["chat"]["id"]
-        text = update["message"].get("text", "").lower()
 
-        if "/start" in text:
-            send_message(chat_id, "👋 Bienvenue sur Bot A+ !\nJe t’enverrai des signaux crypto 🔥")
-        elif "/news" in text:
-            send_message(chat_id, get_crypto_news())
-        elif "/rumors" in text:
-            send_message(chat_id, get_crypto_rumors())
-        elif "/smart" in text:
-            send_message(chat_id, get_smart_money_data())
-        elif "/signal" in text:
-            send_message(chat_id, get_crypto_signal())
-        else:
-            send_message(chat_id, "Commande inconnue. Essaie /news, /rumors, /smart ou /signal.")
-
-    return {"ok": True}
-
-@app.route("/")
-def home():
-    return "Bot A+ opérationnel ✅"
-
-# === TÂCHE PLANIFIÉE AUTOMATIQUE ===
-def auto_signal():
-    msg = get_crypto_signal()
-    send_message(CHAT_ID, msg)
-    print("Signal automatique envoyé ✅")
-
-schedule.every(6).hours.do(auto_signal)
-
-def run_scheduler():
-    while True:
-        schedule.run_pending()
-        time.sleep(60)
-
+# ==============================
+# DÉMARRAGE DU BOT
+# ==============================
 if __name__ == "__main__":
-    # CONFIGURATION WEBHOOK
-    url = f"https://api.telegram.org/bot{TOKEN}/setWebhook"
-    webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME', 'botaplussupral-2.onrender.com')}/{TOKEN}"
-    r = requests.get(url, params={"url": webhook_url})
-    print("🔗 Webhook configuré :", r.text)
-
-    send_message(CHAT_ID, "🚀 Bot A+ redémarré avec succès sur Render !")
-    from threading import Thread
-    Thread(target=run_scheduler).start()
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
+    setup_webhook()
+    port = int(os.getenv("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
