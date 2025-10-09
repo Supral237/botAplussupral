@@ -59,7 +59,7 @@ def get_twitter_rumors():
     except Exception as e:
         return f"⚠️ Erreur Twitter API : {e}"
 
-# --- ROUTE DYNAMIQUE POUR WEBHOOK ---
+# --- ROUTES FLASK ---
 
 @app.route("/", methods=["GET"])
 def home():
