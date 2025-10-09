@@ -1,166 +1,116 @@
 import os
 import requests
 from flask import Flask, request
-import threading
+import schedule
 import time
-import logging
+import threading
 
-# ==============================
-# CONFIGURATION DU BOT
-# ==============================
-TOKEN = "8404423366:AAELzmHapklGgYTa_nHCRzVzYaEjWDSBeQA"
+# ===== CONFIGURATION =====
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+BEARER_TOKEN = os.getenv("BEARER_TOKEN")
+COVALENT_API_KEY = os.getenv("COVALENT_API_KEY")
 WEBHOOK_URL = f"https://botaplussupral-2.onrender.com/{TOKEN}"
-ADMIN_CHAT_ID = "7457254381"  # <-- Remplace par ton ID Telegram
+BOT_URL = f"https://api.telegram.org/bot{TOKEN}"
 
-# ==============================
-# INITIALISATION
-# ==============================
 app = Flask(__name__)
-logging.basicConfig(level=logging.INFO)
 
+# ===== FONCTIONS UTILITAIRES =====
 
-# ==============================
-# ENVOI DE MESSAGE
-# ==============================
 def send_message(chat_id, text):
-    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    url = f"{BOT_URL}/sendMessage"
     payload = {"chat_id": chat_id, "text": text}
     try:
-        requests.post(url, json=payload)
+        requests.post(url, json=payload, timeout=10)
     except Exception as e:
-        logging.error(f"Erreur lors de l'envoi du message : {e}")
+        print(f"Erreur envoi message: {e}")
 
-
-# ==============================
-# ROUTES FLASK
-# ==============================
-@app.route("/", methods=["GET"])
-def home():
-    return "🤖 Bot A+ opérationnel ✅", 200
-
-
-@app.route(f"/{TOKEN}", methods=["POST"])
-def webhook():
-    try:
-        update = request.get_json()
-        logging.info(f"📩 Nouvelle mise à jour : {update}")
-
-        if "message" in update:
-            chat_id = update["message"]["chat"]["id"]
-            text = update["message"].get("text", "").lower()
-
-            if text in ["/start", "start"]:
-                send_message(chat_id, "👋 Salut ! Je suis Bot A+. Je t’enverrai des signaux crypto 🔥")
-
-            elif "rumeur" in text:
-                send_message(chat_id, "🔍 Recherche des dernières rumeurs crypto...")
-                rumeurs = get_crypto_rumeurs()
-                send_message(chat_id, rumeurs)
-
-            elif "smart" in text:
-                send_message(chat_id, "💼 Détection des mouvements de Smart Money...")
-                smart = get_smart_money()
-                send_message(chat_id, smart)
-
-            elif "news" in text:
-                send_message(chat_id, "📰 Analyse des dernières actualités du marché crypto...")
-                news = get_crypto_news()
-                send_message(chat_id, news)
-
-            else:
-                send_message(chat_id, "✅ Commande reçue ! Essaie 'rumeur', 'smart' ou 'news'.")
-
-        return "ok", 200
-    except Exception as e:
-        logging.error(f"Erreur dans le webhook : {e}")
-        return "error", 500
-
-
-# ==============================
-# MODULE RUMEURS (FAUX EXEMPLE)
-# ==============================
-def get_crypto_rumeurs():
-    try:
-        # Ici tu pourras remplacer par un appel API réel
-        rumeurs = [
-            "🚀 Rumeur : Binance préparerait une intégration avec TON Network.",
-            "💎 Rumeur : Coinbase envisagerait de lister un nouveau projet basé sur Solana.",
-        ]
-        return "\n\n".join(rumeurs)
-    except Exception as e:
-        return f"Erreur lors de la récupération des rumeurs : {e}"
-
-
-# ==============================
-# MODULE SMART MONEY (FAUX EXEMPLE)
-# ==============================
-def get_smart_money():
-    try:
-        smart = [
-            "💼 Une baleine a acheté 1.2M $ de $LINK sur Binance.",
-            "🧠 Portefeuille 0xABC vient d'accumuler massivement du $PYTH avant une annonce.",
-        ]
-        return "\n\n".join(smart)
-    except Exception as e:
-        return f"Erreur lors de la récupération des données Smart Money : {e}"
-
-
-# ==============================
-# MODULE NEWS (FAUX EXEMPLE)
-# ==============================
+# ===== RUMEURS / NEWS (via Twitter) =====
 def get_crypto_news():
+    if not BEARER_TOKEN:
+        return "⚠️ Aucune clé Twitter configurée."
     try:
-        news = [
-            "📰 Bitcoin franchit 72 000 $ pour la première fois depuis avril.",
-            "🔥 Ethereum annonce une nouvelle mise à jour centrée sur la scalabilité.",
-        ]
+        headers = {"Authorization": f"Bearer {BEARER_TOKEN}"}
+        query = "crypto (partnership OR listing OR announcement OR upgrade) -is:retweet lang:fr"
+        url = f"https://api.x.com/2/tweets/search/recent?query={query}&max_results=5&tweet.fields=created_at"
+        res = requests.get(url, headers=headers, timeout=10)
+        data = res.json().get("data", [])
+        if not data:
+            return "Aucune rumeur trouvée récemment."
+        news = [f"📰 {n['text']}" for n in data]
         return "\n\n".join(news)
     except Exception as e:
-        return f"Erreur lors de la récupération des actualités : {e}"
+        return f"Erreur récupération news : {e}"
 
+# ===== SMART MONEY (via Covalent) =====
+def get_smart_money():
+    if not COVALENT_API_KEY:
+        return "⚠️ Clé Covalent manquante."
+    try:
+        # Exemple : un portefeuille souvent actif sur Ethereum
+        wallet = "0xb1b2d032AA2F52347fbcfd08E5C3Cc55216E8404"
+        url = f"https://api.covalenthq.com/v1/1/address/{wallet}/transactions_v3/?key={COVALENT_API_KEY}"
+        res = requests.get(url, timeout=10).json()
+        txs = res.get("data", {}).get("items", [])
+        if not txs:
+            return "Aucune activité détectée sur le portefeuille."
+        latest = txs[:3]
+        out = []
+        for tx in latest:
+            value = tx.get("value_quote", 0)
+            to_addr = tx.get("to_address", "")
+            symbol = tx.get("tx_hash", "")[:10]
+            out.append(f"💰 Tx {symbol} → {to_addr}\nValeur estimée : ${round(value,2)}")
+        return "\n\n".join(out)
+    except Exception as e:
+        return f"Erreur Covalent : {e}"
 
-# ==============================
-# FONCTION AUTOMATIQUE (veille horaire)
-# ==============================
-def veille_automatique():
+# ===== TRAITEMENT DES COMMANDES =====
+@app.route(f"/{TOKEN}", methods=["POST"])
+def handle_message():
+    update = request.get_json()
+    if not update:
+        return "ok"
+    
+    message = update.get("message", {})
+    chat_id = message.get("chat", {}).get("id")
+    text = message.get("text", "").lower()
+
+    if text == "/start":
+        send_message(chat_id, "👋 Bienvenue sur le bot A+ ! Je t’enverrai bientôt des signaux crypto 🔥")
+    elif text == "/rumeurs":
+        send_message(chat_id, "🔍 Recherche des rumeurs crypto en cours…")
+        send_message(chat_id, get_crypto_news())
+    elif text == "/smart":
+        send_message(chat_id, "💼 Analyse des portefeuilles Smart Money…")
+        send_message(chat_id, get_smart_money())
+    else:
+        send_message(chat_id, "❓ Commandes disponibles :\n/start\n/rumeurs\n/smart")
+
+    return "ok"
+
+@app.route("/", methods=["GET"])
+def home():
+    return "✅ Bot A+ actif sur Render !"
+
+# ===== PLANIFICATION (optionnelle) =====
+def job_auto_message():
+    print("⏰ Envoi automatique en cours…")
+
+schedule.every(6).hours.do(job_auto_message)
+
+def scheduler_thread():
     while True:
-        try:
-            logging.info("⏰ Lancement de la veille automatique...")
-            rumeurs = get_crypto_rumeurs()
-            smart = get_smart_money()
+        schedule.run_pending()
+        time.sleep(60)
 
-            message = f"🕓 **Veille automatique crypto (toutes les heures)**\n\n{rumeurs}\n\n{smart}"
-            send_message(ADMIN_CHAT_ID, message)
-        except Exception as e:
-            logging.error(f"Erreur dans la veille automatique : {e}")
-        time.sleep(3600)  # toutes les heures
+# ===== DÉMARRAGE DU BOT =====
+def set_webhook():
+    print("🔗 Configuration du Webhook…")
+    res = requests.get(f"{BOT_URL}/setWebhook?url={WEBHOOK_URL}")
+    print("Réponse Webhook:", res.text)
 
-
-# ==============================
-# CONFIGURATION DU WEBHOOK
-# ==============================
-def setup_webhook():
-    logging.info("🔗 Configuration du Webhook...")
-    delete_url = f"https://api.telegram.org/bot{TOKEN}/deleteWebhook"
-    set_url = f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={WEBHOOK_URL}"
-
-    requests.get(delete_url)
-    response = requests.get(set_url)
-    logging.info(f"Résultat du webhook : {response.text}")
-
-    if ADMIN_CHAT_ID != "XXXX":
-        send_message(ADMIN_CHAT_ID, "🚀 Bot A+ prêt et webhook configuré avec succès !")
-
-
-# ==============================
-# DÉMARRAGE DU BOT
-# ==============================
 if __name__ == "__main__":
-    setup_webhook()
-
-    # Démarrer le thread de veille automatique
-    if ADMIN_CHAT_ID != "XXXX":
-        threading.Thread(target=veille_automatique, daemon=True).start()
-
-    port = int(os.getenv("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    set_webhook()
+    threading.Thread(target=scheduler_thread, daemon=True).start()
+    print("🚀 Bot A+ démarré avec succès sur Render !")
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
