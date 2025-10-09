@@ -12,17 +12,15 @@ app = Flask(__name__)
 # --- FONCTIONS UTILITAIRES ---
 
 def send_message(chat_id, text):
-    """Envoie un message Telegram"""
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
     try:
         requests.post(url, json=payload)
     except Exception as e:
-        print(f"⚠️ Erreur d'envoi Telegram : {e}")
+        print(f"⚠️ Erreur Telegram : {e}")
 
 
 def get_crypto_signal():
-    """Simule la détection de signaux crypto"""
     try:
         url = "https://api.coingecko.com/api/v3/search/trending"
         data = requests.get(url).json()
@@ -39,10 +37,9 @@ def get_crypto_signal():
 
 
 def get_twitter_rumors():
-    """Analyse les rumeurs crypto sur Twitter"""
     try:
         if not TWITTER_BEARER_TOKEN:
-            return "⚠️ Clé Twitter API manquante sur Render."
+            return "⚠️ Clé Twitter API manquante."
 
         headers = {"Authorization": f"Bearer {TWITTER_BEARER_TOKEN}"}
         query = "(crypto OR partnership OR listing OR launch OR rumor) (binance OR coinbase OR okx OR solana OR ethereum OR base OR layerzero) lang:en -is:retweet"
@@ -62,11 +59,14 @@ def get_twitter_rumors():
     except Exception as e:
         return f"⚠️ Erreur Twitter API : {e}"
 
-# --- BOT COMMANDES ---
+# --- ROUTE DYNAMIQUE POUR WEBHOOK ---
 
-@app.route(f"/{TOKEN}", methods=["POST"])
-def receive_update():
-    """Réception des messages Telegram"""
+@app.route("/", methods=["GET"])
+def home():
+    return "✅ Bot A+ en ligne et opérationnel !"
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
     data = request.get_json()
 
     if "message" in data:
@@ -84,14 +84,11 @@ def receive_update():
 
     return {"ok": True}
 
-@app.route("/")
-def home():
-    return "✅ Bot A+ en ligne et opérationnel !"
-
 # --- DÉMARRAGE DU WEBHOOK ---
+
 if __name__ == "__main__":
+    webhook_url = f"https://botaplussupral-2.onrender.com/webhook"
     url = f"https://api.telegram.org/bot{TOKEN}/setWebhook"
-    webhook_url = f"https://botaplussupral-2.onrender.com/{TOKEN}"
     response = requests.get(url, params={"url": webhook_url})
     print("🔗 Configuration du Webhook :", response.text)
 
