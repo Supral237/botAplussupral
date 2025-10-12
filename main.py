@@ -1,141 +1,115 @@
 import os
-import time
-import threading
-import logging
+import telebot
 import requests
 import schedule
-from flask import Flask
-import telebot
+import time
+import threading
+from flask import Flask, request
 
-# --- CONFIGURATION ---
-TOKEN = os.getenv("8404423366:AAELzmHapklGgYTa_nHCRzVzYaEjWDSBeQA") or "TON_TOKEN_ICI"
-bot = telebot.TeleBot(TOKEN)
+# === CONFIGURATION ===
+BOT_TOKEN = os.getenv("8404423366:AAELzmHapklGgYTa_nHCRzVzYaEjWDSBeQA")
+HOSTNAME = os.getenv("botaplussupral-2.onrender.com")
+WEBHOOK_URL = f"https://{HOSTNAME}/webhook"
+
+bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
-# --- LOGGING CONFIGURATION ---
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
-logger = logging.getLogger(__name__)
+# Liste des utilisateurs /start
+users = set()
 
-# --- STOCKAGE DES UTILISATEURS ---
-USERS_FILE = "users.txt"
-
-
-def save_user(chat_id):
-    """Enregistre l'utilisateur dans un fichier s'il n'existe pas déjà."""
-    if not os.path.exists(USERS_FILE):
-        open(USERS_FILE, "w").close()
-
-    with open(USERS_FILE, "r") as f:
-        users = f.read().splitlines()
-
-    if str(chat_id) not in users:
-        with open(USERS_FILE, "a") as f:
-            f.write(str(chat_id) + "\n")
-        logger.info(f"Nouvel utilisateur ajouté : {chat_id}")
-
-
-def get_all_users():
-    """Récupère la liste des utilisateurs enregistrés."""
-    if not os.path.exists(USERS_FILE):
-        return []
-    with open(USERS_FILE, "r") as f:
-        return [u.strip() for u in f if u.strip()]
-
-
-# --- ANALYSE COMBINÉE ---
-def analyse_combinee():
-    """
-    Combine les données de rumeurs et de smart money.
-    (Ici on simule, mais tu peux connecter ton API ou tes scripts d'analyse réels)
-    """
-    logger.info("Début de l’analyse combinée (rumeurs + smart money)...")
-
+# === FONCTION D'ANALYSE DEXSCREENER ===
+def get_crypto_analysis(symbol="BTC"):
     try:
-        # Exemple de récupération des données simulées
-        rumeurs = "Les rumeurs indiquent une forte activité sur $OP et $INJ."
-        smart_money = "Les portefeuilles smart money accumulent massivement du $INJ."
+        print(f"[LOG] Récupération de l'analyse pour {symbol}")
+        url = f"https://api.dexscreener.com/latest/dex/search/?q={symbol}"
+        r = requests.get(url)
+        data = r.json()
 
-        resultat = f"🔥 **Analyse combinée** 🔥\n\n📈 {rumeurs}\n💰 {smart_money}\n\nConclusion : $INJ montre un fort potentiel de pump."
-        logger.info("Analyse combinée terminée avec succès.")
-        return resultat
+        if "pairs" not in data or len(data["pairs"]) == 0:
+            return f"❌ Aucune donnée trouvée pour {symbol}"
+
+        pair = data["pairs"][0]
+        price_usd = float(pair.get("priceUsd", 0))
+        volume_24h = float(pair.get("volume", 0))
+        price_change = float(pair.get("priceChange", {}).get("h24", 0))
+
+        # Calcul de la note de confiance
+        score = 5
+        if price_change > 10:
+            score += 2
+        elif price_change < -10:
+            score -= 2
+        if volume_24h > 1_000_000:
+            score += 2
+
+        score = max(0, min(score, 10))  # borne 0-10
+        tendance = "📈 En forte hausse" if price_change > 5 else "📉 En baisse" if price_change < -5 else "➡️ Stable"
+
+        message = (
+            f"💎 **Signal crypto automatique**\n\n"
+            f"🔹 **Token :** {symbol}\n"
+            f"💰 **Prix actuel :** {round(price_usd, 4)} $\n"
+            f"📊 **Variation 24h :** {price_change:.2f} %\n"
+            f"💵 **Volume (24h) :** {volume_24h:,.0f} $\n"
+            f"🧭 **Note de confiance : {score}/10**\n\n"
+            f"{tendance}\n"
+            f"⏰ Analyse mise à jour automatiquement toutes les 6h."
+        )
+        return message
 
     except Exception as e:
-        logger.error(f"Erreur pendant l’analyse combinée : {e}")
-        return "⚠️ Erreur pendant l’analyse combinée."
+        print(f"[ERREUR ANALYSE] {e}")
+        return "❌ Erreur lors de l'analyse."
 
-
-# --- ENVOI AUTOMATIQUE ---
-def envoyer_analyse_auto():
-    """Envoie automatiquement l’analyse combinée à tous les utilisateurs."""
-    logger.info("Démarrage de l’envoi automatique de l’analyse...")
-    try:
-        users = get_all_users()
-        if not users:
-            logger.warning("Aucun utilisateur enregistré. Aucun envoi effectué.")
-            return
-
-        message = analyse_combinee()
+# === ENVOI AUTOMATIQUE ===
+def send_auto_signal():
+    print("[LOG] Envoi automatique des signaux...")
+    cryptos = ["BTC", "ETH", "SOL", "AVAX"]
+    for symbol in cryptos:
+        msg = get_crypto_analysis(symbol)
         for user in users:
             try:
-                bot.send_message(user, message, parse_mode="Markdown")
-                logger.info(f"Analyse envoyée à {user}")
+                bot.send_message(user, msg, parse_mode="Markdown")
+                print(f"[OK] Signal envoyé à {user} pour {symbol}")
             except Exception as e:
-                logger.error(f"Erreur lors de l’envoi à {user}: {e}")
-    except Exception as e:
-        logger.error(f"Erreur globale dans l’envoi automatique : {e}")
+                print(f"[ERREUR ENVOI] {e}")
 
-
-# Planifie l’envoi toutes les 6 heures
-schedule.every(6).hours.do(envoyer_analyse_auto)
-
-
-def scheduler_thread():
-    """Thread pour exécuter le scheduler sans bloquer le bot."""
+# === PLANIFICATION (toutes les 6h) ===
+def schedule_jobs():
+    schedule.every(6).hours.do(send_auto_signal)
     while True:
         schedule.run_pending()
-        time.sleep(30)
+        time.sleep(60)
 
+# === WEBHOOK ===
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    update = telebot.types.Update.de_json(request.stream.read().decode("utf-8"))
+    bot.process_new_updates([update])
+    return "OK", 200
 
-# --- HANDLERS TELEGRAM ---
+# === COMMANDES TELEGRAM ===
 @bot.message_handler(commands=["start"])
-def start_command(message):
-    save_user(message.chat.id)
+def start(message):
+    users.add(message.chat.id)
     bot.reply_to(
         message,
-        "👋 Salut ! Tu recevras désormais automatiquement les analyses crypto toutes les 6h 🚀",
+        "👋 Salut ! Je t’enverrai automatiquement des signaux crypto toutes les 6h.\n"
+        "Tu recevras les analyses des tokens les plus prometteurs avec une note de confiance."
     )
-    logger.info(f"Commande /start reçue de {message.chat.id}")
 
+@bot.message_handler(commands=["signal"])
+def manual_signal(message):
+    bot.reply_to(message, "📡 Génération d’un signal en cours...")
+    msg = get_crypto_analysis("BTC")
+    bot.send_message(message.chat.id, msg, parse_mode="Markdown")
 
-@bot.message_handler(commands=["analyse"])
-def manual_analyse(message):
-    logger.info(f"Commande /analyse demandée par {message.chat.id}")
-    resultat = analyse_combinee()
-    bot.reply_to(message, resultat, parse_mode="Markdown")
-
-
-# --- FLASK KEEP-ALIVE ---
-@app.route("/")
-def home():
-    return "Bot actif ✅"
-
-
-# --- LANCEMENT GLOBAL ---
+# === LANCEMENT ===
 if __name__ == "__main__":
-    logger.info("Démarrage du bot Telegram...")
+    print("[LOG] Démarrage du bot A+ Supral avec DexScreener")
+    bot.remove_webhook()
+    bot.set_webhook(url=WEBHOOK_URL)
+    print(f"[OK] Webhook configuré sur {WEBHOOK_URL}")
 
-    # Thread 1 : bot Telegram
-    bot_thread = threading.Thread(target=bot.infinity_polling, name="TelegramBot")
-    bot_thread.start()
-
-    # Thread 2 : scheduler (envoi toutes les 6h)
-    schedule_thread = threading.Thread(target=scheduler_thread, name="Scheduler")
-    schedule_thread.start()
-
-    # Serveur Flask pour Render
-    port = int(os.environ.get("PORT", 5000))
-    logger.info(f"Lancement du serveur Flask sur le port {port}...")
-    app.run(host="0.0.0.0", port=port)
+    threading.Thread(target=schedule_jobs, daemon=True).start()
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
