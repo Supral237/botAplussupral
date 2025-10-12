@@ -9,8 +9,8 @@ from flask import Flask, request
 logging.basicConfig(level=logging.INFO, format="[LOG] %(message)s")
 
 # === LECTURE DES VARIABLES D'ENVIRONNEMENT ===
-BOT_TOKEN = os.environ.get("8404423366:AAELzmHapklGgYTa_nHCRzVzYaEjWDSBeQA")
-RENDER_EXTERNAL_HOSTNAME = os.environ.get("botaplussupral-2.onrender.com")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+RENDER_EXTERNAL_HOSTNAME = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
 
 if not BOT_TOKEN:
     logging.error("❌ ERREUR : La variable BOT_TOKEN n'est pas définie dans Render.")
