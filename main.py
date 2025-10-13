@@ -1,7 +1,8 @@
 import os
+import time
 import requests
 from flask import Flask, request
-from telebot import TeleBot
+from telebot import TeleBot, types
 
 # =======================
 # 🔧 Configuration de base
@@ -27,10 +28,22 @@ print("[LOG] 🚀 Démarrage du bot A+ Supral avec DexScreener...")
 # ============================
 def setup_webhook():
     webhook_url = f"https://{HOSTNAME}/webhook"
-    print(f"[LOG] 🌐 Configuration du webhook sur : {webhook_url}")
+    print(f"[LOG] 🌐 Tentative de configuration du webhook : {webhook_url}")
+
+    # Attendre que Render démarre bien
+    for i in range(5):
+        try:
+            response = requests.get(f"https://{HOSTNAME}/")
+            if response.status_code == 200:
+                print("[LOG] ✅ Render est accessible, configuration du webhook...")
+                break
+        except Exception as e:
+            print(f"[LOG] ⚠️ Render pas encore prêt ({e}), nouvelle tentative...")
+        time.sleep(3)
 
     bot.remove_webhook()
     success = bot.set_webhook(url=webhook_url)
+
     if success:
         print("[LOG] ✅ Webhook configuré avec succès !")
     else:
@@ -46,7 +59,7 @@ def fetch_dexscreener_data():
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
             data = response.json()
-            return data.get("pairs", [])[:5]  # On prend les 5 premières paires
+            return data.get("pairs", [])[:5]
     except Exception as e:
         print(f"[LOG] ⚠️ Erreur DexScreener : {e}")
     return []
