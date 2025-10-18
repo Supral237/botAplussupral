@@ -11,14 +11,11 @@ logging.basicConfig(level=logging.INFO, format='[LOG] %(message)s')
 
 # === VARIABLES D'ENVIRONNEMENT ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-HOSTNAME = os.getenv("HOSTNAME")
+PUBLIC_URL = os.getenv("PUBLIC_URL", "https://botaplussupral-2.onrender.com")
 
 if not BOT_TOKEN:
     logging.error("❌ ERREUR : La variable BOT_TOKEN n'est pas définie.")
     raise ValueError("La variable BOT_TOKEN n'est pas définie.")
-if not HOSTNAME:
-    logging.warning("⚠️ Avertissement : HOSTNAME non défini, utilisation par défaut Render.")
-    HOSTNAME = "botaplussupral-2.onrender.com"
 
 # === INITIALISATION ===
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -27,20 +24,31 @@ users = {}  # user_id : fréquence d'analyse (en heures)
 watchlist = {}  # user_id : [liste de cryptos à surveiller]
 
 # === CONFIGURATION DU WEBHOOK ===
-WEBHOOK_URL = f"https://{HOSTNAME}/webhook"
+WEBHOOK_URL = f"{PUBLIC_URL}/webhook"
 
 def setup_webhook():
-    logging.info(f"🌐 Configuration du webhook sur : {WEBHOOK_URL}")
-    bot.remove_webhook()
-    time.sleep(1)
-    bot.set_webhook(url=WEBHOOK_URL)
+    logging.info(f"[LOG] 🌐 Configuration du webhook sur : {WEBHOOK_URL}")
+    try:
+        bot.remove_webhook()
+        time.sleep(1)
+        success = bot.set_webhook(url=WEBHOOK_URL)
+        if success:
+            logging.info(f"[LOG] ✅ Webhook configuré avec succès sur {WEBHOOK_URL}")
+        else:
+            logging.error(f"[LOG] ❌ Échec de configuration du webhook sur {WEBHOOK_URL}")
+    except Exception as e:
+        logging.error(f"[LOG] ❌ Erreur lors du setup webhook : {e}")
 
 # === ROUTE FLASK ===
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    update = request.get_data().decode("utf-8")
-    bot.process_new_updates([telebot.types.Update.de_json(update)])
-    return "OK", 200
+    try:
+        update = telebot.types.Update.de_json(request.stream.read().decode("utf-8"))
+        bot.process_new_updates([update])
+        return "OK", 200
+    except Exception as e:
+        logging.error(f"[LOG] ❌ Erreur webhook : {e}")
+        return "ERROR", 500
 
 # === COMMANDE /start ===
 @bot.message_handler(commands=["start"])
@@ -164,7 +172,7 @@ def scheduler_loop():
 # === LANCEMENT ===
 if __name__ == "__main__":
     logging.info(f"✅ BOT_TOKEN détecté : {BOT_TOKEN[:8]}********")
-    logging.info(f"✅ HOSTNAME utilisé : {HOSTNAME}")
+    logging.info(f"✅ URL publique : {PUBLIC_URL}")
     logging.info("🚀 Démarrage du bot A+ Supral avec surveillance personnalisée...")
     setup_webhook()
     Thread(target=scheduler_loop).start()
