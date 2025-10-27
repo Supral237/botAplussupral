@@ -4,7 +4,7 @@ import requests
 import threading
 from datetime import datetime, UTC
 from dotenv import load_dotenv
-from flask import Flask
+from flask import Flask, request
 
 # ============================
 # 🔧 Configuration de base
@@ -26,11 +26,9 @@ TOKENS = ["ASTR", "PEPE", "WIF", "SOL", "TIA"]
 # ⚙️ Fonctions principales
 # ============================
 def log(message: str):
-    """Affiche l’heure et le message"""
     print(f"[{datetime.now(UTC).strftime('%H:%M:%S')}] {message}")
 
 def send_telegram_message(msg: str):
-    """Envoie un message sur Telegram"""
     if TELEGRAM_TOKEN and CHAT_ID:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         data = {"chat_id": CHAT_ID, "text": msg}
@@ -42,7 +40,6 @@ def send_telegram_message(msg: str):
         log("⚠️ Impossible d’envoyer le message : clés Telegram absentes")
 
 def get_price(symbol: str):
-    """Récupère le prix actuel d’une crypto sur Binance"""
     try:
         url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}USDT"
         r = requests.get(url, timeout=10).json()
@@ -51,27 +48,21 @@ def get_price(symbol: str):
         return None
 
 def analyze_token(symbol: str):
-    """Analyse basique d’un token"""
     price = get_price(symbol)
     if not price:
         return None
 
     score = 0
-
-    # Exemple de logique simple de détection
     if price > 1:
         score += 1
     if "PEPE" in symbol:
         score += 1
     if price > 10:
         score += 1
-
     return score
 
 def detect_pumps():
-    """Boucle principale d’analyse"""
     log("🚀 Smart Pump Detector lancé (Render)")
-
     while True:
         for token in TOKENS:
             log(f"Analyse de {token}...")
@@ -83,7 +74,6 @@ def detect_pumps():
             else:
                 log(f"Rien de spécial sur {token} (score={score})")
             time.sleep(5)
-
         log("⏳ Nouvelle vérification dans 3 min...")
         time.sleep(180)
 
@@ -96,17 +86,27 @@ app = Flask(__name__)
 def home():
     return "Smart Pump Detector est en ligne 🚀"
 
+@app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
+def telegram_webhook():
+    """Réception des messages Telegram (Webhook)"""
+    data = request.get_json()
+    if "message" in data:
+        chat_id = data["message"]["chat"]["id"]
+        text = data["message"].get("text", "")
+        if text.lower() in ["/start", "start"]:
+            send_telegram_message("👋 Bot SmartPump connecté et opérationnel !")
+        elif text.lower() == "signal":
+            send_telegram_message("🔍 Aucune alerte pour le moment.")
+    return "ok", 200
+
 def run_flask():
-    """Lancer le mini serveur Flask pour Render"""
     app.run(host="0.0.0.0", port=10000)
 
 # ============================
 # 🚀 Lancement du bot + serveur
 # ============================
 if __name__ == "__main__":
-    # Démarrer le détecteur de pump dans un thread
-    thread_bot = threading.Thread(target=detect_pumps)
-    thread_bot.start()
-
-    # Démarrer le serveur Flask
+    # Lancer le bot d’analyse
+    threading.Thread(target=detect_pumps).start()
+    # Lancer le serveur Flask
     run_flask()
