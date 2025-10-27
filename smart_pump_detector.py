@@ -1,84 +1,112 @@
-import requests
-import time
 import os
-from datetime import datetime, timezone
+import time
+import requests
+import threading
+from datetime import datetime, UTC
 from dotenv import load_dotenv
+from flask import Flask
 
-# 🔧 Charger le fichier .env depuis ton dossier Android
-load_dotenv("/storage/emulated/0/Analyze/.env")
+# ============================
+# 🔧 Configuration de base
+# ============================
+load_dotenv()
 
-# 🧩 Récupération des clés API depuis le fichier .env
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 
-# 🔔 Fonction pour envoyer un message Telegram
-def send_telegram_message(message):
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("[ERREUR] Clés Telegram manquantes dans .env")
-        print(f"TELEGRAM_BOT_TOKEN={TELEGRAM_BOT_TOKEN}")
-        print(f"TELEGRAM_CHAT_ID={TELEGRAM_CHAT_ID}")
-        return
+if not TELEGRAM_TOKEN or not CHAT_ID:
+    print("[ERREUR] ⚠️ Les clés Telegram sont manquantes dans .env")
+    TELEGRAM_TOKEN = None
+    CHAT_ID = None
 
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
+# Liste des cryptos à surveiller
+TOKENS = ["ASTR", "PEPE", "WIF", "SOL", "TIA"]
+
+# ============================
+# ⚙️ Fonctions principales
+# ============================
+def log(message: str):
+    """Affiche l’heure et le message"""
+    print(f"[{datetime.now(UTC).strftime('%H:%M:%S')}] {message}")
+
+def send_telegram_message(msg: str):
+    """Envoie un message sur Telegram"""
+    if TELEGRAM_TOKEN and CHAT_ID:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        data = {"chat_id": CHAT_ID, "text": msg}
+        try:
+            requests.post(url, data=data, timeout=10)
+        except Exception as e:
+            log(f"Erreur Telegram : {e}")
+    else:
+        log("⚠️ Impossible d’envoyer le message : clés Telegram absentes")
+
+def get_price(symbol: str):
+    """Récupère le prix actuel d’une crypto sur Binance"""
     try:
-        response = requests.post(url, data=payload)
-        if response.status_code == 200:
-            print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] ✅ Message envoyé à Telegram")
-        else:
-            print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] ❌ Erreur Telegram : {response.text}")
-    except Exception as e:
-        print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] ⚠️ Erreur lors de l’envoi Telegram : {e}")
+        url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}USDT"
+        r = requests.get(url, timeout=10).json()
+        return float(r["price"])
+    except Exception:
+        return None
 
-# 🧮 Fonction de calcul du score de pump
-def pump_score(symbol):
-    try:
-        url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}USDT"
-        r = requests.get(url, timeout=10)
-        data = r.json()
+def analyze_token(symbol: str):
+    """Analyse basique d’un token"""
+    price = get_price(symbol)
+    if not price:
+        return None
 
-        price_change = float(data["priceChangePercent"])
-        volume = float(data["quoteVolume"])
+    score = 0
 
-        score = 0
-        if price_change > 5:
-            score += 2
-        if price_change > 10:
-            score += 3
-        if volume > 10000000:
-            score += 2
-        if volume > 50000000:
-            score += 3
+    # Exemple de logique simple de détection
+    if price > 1:
+        score += 1
+    if "PEPE" in symbol:
+        score += 1
+    if price > 10:
+        score += 1
 
-        return score, price_change, volume
-    except Exception as e:
-        print(f"Erreur lors du calcul pour {symbol}: {e}")
-        return 0, 0, 0
+    return score
 
-# 🔍 Liste des cryptos à surveiller
-TOKENS = ["ASTR", "PEPE", "WIF", "SOL", "TIA", "DOGE", "BTC", "ETH"]
-
-# 🕒 Fonction principale
-def main():
-    print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] 🚀 Smart Pump Detector lancé (Android - Pydroid 3)")
-
-    if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
-        send_telegram_message("🚀 Smart Pump Detector vient d’être lancé ✅")
+def detect_pumps():
+    """Boucle principale d’analyse"""
+    log("🚀 Smart Pump Detector lancé (Render)")
 
     while True:
         for token in TOKENS:
-            print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] Analyse de {token}...")
-            score, change, volume = pump_score(token)
-            if score >= 5:
-                alert = f"🚨 {token} semble PUMPER !\n💹 Variation : {change:.2f}%\n💰 Volume : {volume/1_000_000:.2f}M USDT\nScore : {score}/10"
-                print(alert)
-                send_telegram_message(alert)
+            log(f"Analyse de {token}...")
+            score = analyze_token(token)
+            if score and score >= 3:
+                message = f"🚨 PUMP détecté sur {token} (score={score})"
+                log(message)
+                send_telegram_message(message)
             else:
-                print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] Rien de spécial sur {token} (score={score})")
+                log(f"Rien de spécial sur {token} (score={score})")
+            time.sleep(5)
 
-        print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] ⏳ Nouvelle vérification dans 3 min...")
+        log("⏳ Nouvelle vérification dans 3 min...")
         time.sleep(180)
 
-# 🏁 Lancement du programme
+# ============================
+# 🌐 Serveur Flask (pour Render)
+# ============================
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Smart Pump Detector est en ligne 🚀"
+
+def run_flask():
+    """Lancer le mini serveur Flask pour Render"""
+    app.run(host="0.0.0.0", port=10000)
+
+# ============================
+# 🚀 Lancement du bot + serveur
+# ============================
 if __name__ == "__main__":
-    main()
+    # Démarrer le détecteur de pump dans un thread
+    thread_bot = threading.Thread(target=detect_pumps)
+    thread_bot.start()
+
+    # Démarrer le serveur Flask
+    run_flask()
